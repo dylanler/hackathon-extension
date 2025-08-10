@@ -539,6 +539,37 @@ importers:
         specifier: workspace:*
         version: link:../../packages/vite-config
 
+  pages/projects:
+    dependencies:
+      '@extension/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
+      '@extension/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@extension/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
+      '@extension/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      react:
+        specifier: ^19.1.0
+        version: 19.1.0
+      react-dom:
+        specifier: ^19.1.0
+        version: 19.1.0(react@19.1.0)
+    devDependencies:
+      '@extension/tailwindcss-config':
+        specifier: workspace:*
+        version: link:../../packages/tailwindcss-config
+      '@extension/tsconfig':
+        specifier: workspace:*
+        version: link:../../packages/tsconfig
+      '@extension/vite-config':
+        specifier: workspace:*
+        version: link:../../packages/vite-config
+
   pages/side-panel:
     dependencies:
       '@extension/i18n':

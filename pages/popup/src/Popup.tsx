@@ -1,6 +1,7 @@
 import '@src/Popup.css';
 import { t } from '@extension/i18n';
 import { PROJECT_URL_OBJECT, useStorage, withErrorBoundary, withSuspense } from '@extension/shared';
+import { projectsStorage } from '@extension/storage';
 import { exampleThemeStorage } from '@extension/storage';
 import { cn, ErrorDisplay, LoadingSpinner, ToggleButton } from '@extension/ui';
 
@@ -58,6 +59,31 @@ const Popup = () => {
     }
   };
 
+  const openProjects = async () => {
+    const url = chrome.runtime.getURL('projects/index.html');
+    await chrome.tabs.create({ url });
+  };
+
+  const newProject = async () => {
+    const res = await chrome.runtime.sendMessage({ type: 'NEW_PROJECT' });
+    if (!res?.ok) {
+      chrome.notifications.create('new-project-error', {
+        type: 'basic',
+        iconUrl: chrome.runtime.getURL('icon-34.png'),
+        title: 'New Project failed',
+        message: res?.error || 'Unknown error',
+      });
+    } else {
+      chrome.notifications.create('new-project-created', {
+        type: 'basic',
+        iconUrl: chrome.runtime.getURL('icon-34.png'),
+        title: 'Project created',
+        message: `${res.projectId}`,
+      });
+      await openProjects();
+    }
+  };
+
   return (
     <div className={cn('App', isLight ? 'bg-slate-50' : 'bg-gray-800')}>
       <header className={cn('App-header', isLight ? 'text-gray-900' : 'text-gray-100')}>
@@ -83,6 +109,24 @@ const Popup = () => {
           onClick={takeScreenshot}>
           Take Screenshots
         </button>
+        <div className="mt-4 flex gap-2">
+          <button
+            className={cn(
+              'rounded px-3 py-1 font-bold shadow hover:scale-105',
+              isLight ? 'bg-purple-200 text-black' : 'bg-purple-700 text-white',
+            )}
+            onClick={openProjects}>
+            Open Projects
+          </button>
+          <button
+            className={cn(
+              'rounded px-3 py-1 font-bold shadow hover:scale-105',
+              isLight ? 'bg-amber-200 text-black' : 'bg-amber-700 text-white',
+            )}
+            onClick={newProject}>
+            New Project
+          </button>
+        </div>
         <ToggleButton>{t('toggleTheme')}</ToggleButton>
       </header>
     </div>
