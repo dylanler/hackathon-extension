@@ -37,6 +37,27 @@ const Popup = () => {
       });
   };
 
+  const takeScreenshot = async () => {
+    const [tab] = await chrome.tabs.query({ currentWindow: true, active: true });
+    if (!tab?.id) return;
+    const res = await chrome.runtime.sendMessage({ type: 'TAKE_PAGE_SCREENSHOT' });
+    if (!res?.ok) {
+      chrome.notifications.create('screenshot-error', {
+        type: 'basic',
+        iconUrl: chrome.runtime.getURL('icon-34.png'),
+        title: 'Screenshot failed',
+        message: res?.error || 'Unknown error',
+      });
+    } else {
+      chrome.notifications.create('screenshot-saved', {
+        type: 'basic',
+        iconUrl: chrome.runtime.getURL('icon-34.png'),
+        title: 'Screenshot saved',
+        message: `Saved to Downloads/${res.filename}`,
+      });
+    }
+  };
+
   return (
     <div className={cn('App', isLight ? 'bg-slate-50' : 'bg-gray-800')}>
       <header className={cn('App-header', isLight ? 'text-gray-900' : 'text-gray-100')}>
@@ -53,6 +74,14 @@ const Popup = () => {
           )}
           onClick={injectContentScript}>
           {t('injectButton')}
+        </button>
+        <button
+          className={cn(
+            'mt-2 rounded px-4 py-1 font-bold shadow hover:scale-105',
+            isLight ? 'bg-green-200 text-black' : 'bg-green-700 text-white',
+          )}
+          onClick={takeScreenshot}>
+          Take Screenshots
         </button>
         <ToggleButton>{t('toggleTheme')}</ToggleButton>
       </header>
