@@ -85,17 +85,64 @@ const CanvasBoard = ({
   screenshots,
   persistenceKey,
   onEditor,
-  onPersistDeletions,
+  onConfirmDeletions,
 }: {
   screenshots: ScreenshotItem[];
   persistenceKey: string;
   onEditor: (e: Editor | null) => void;
-  onPersistDeletions: (presentDataUrls: Set<string>, seenDataUrls: ReadonlySet<string>) => void;
+  onConfirmDeletions?: (deletedDataUrls: Set<string>) => void;
 }) => {
   const [tool, setTool] = useState<Tool>('select');
   const editorRef = useRef<Editor | null>(null);
   const scanTimerRef = useRef<number | null>(null);
   const seenDataUrlsRef = useRef<Set<string>>(new Set());
+  const missCountsRef = useRef<Map<string, number>>(new Map());
+
+  const addImageToEditor = async (editor: Editor, shot: ScreenshotItem, x: number, y: number) => {
+    const assetId = `asset:${crypto.randomUUID()}` as any;
+    const mimeType = (() => {
+      try {
+        if (shot.dataUrl?.startsWith('data:')) {
+          const semi = shot.dataUrl.indexOf(';');
+          if (semi > 5) return shot.dataUrl.slice(5, semi);
+        }
+      } catch {}
+      return 'image/png';
+    })();
+    editor.createAssets([
+      {
+        id: assetId,
+        type: 'image',
+        typeName: 'asset',
+        props: {
+          src: shot.dataUrl,
+          w: 800,
+          h: 450,
+          name: shot.filename,
+          isAnimated: false,
+          mimeType,
+        },
+        meta: { screenshotId: shot.id },
+      } as any,
+    ]);
+    const shapeId = createShapeId();
+    editor.createShapes([
+      {
+        id: shapeId,
+        type: 'image',
+        x: toDomPrecision(x),
+        y: toDomPrecision(y),
+        props: {
+          w: 800,
+          h: 450,
+          assetId,
+          playing: false,
+          flipX: false,
+          flipY: false,
+        },
+      } as any,
+    ]);
+  };
 
   const mountImages = async (editor: Editor) => {
     // Clear previous images only (keep other user drawings)
@@ -104,51 +151,7 @@ const CanvasBoard = ({
     const startX = 100;
     for (const shot of screenshots) {
       if (!shot?.dataUrl) continue;
-      // Create asset first to avoid invalid protocol errors
-      const assetId = `asset:${crypto.randomUUID()}` as any;
-      const mimeType = (() => {
-        try {
-          if (shot.dataUrl.startsWith('data:')) {
-            const semi = shot.dataUrl.indexOf(';');
-            if (semi > 5) return shot.dataUrl.slice(5, semi);
-          }
-        } catch {}
-        return 'image/png';
-      })();
-      editor.createAssets([
-        {
-          id: assetId,
-          type: 'image',
-          typeName: 'asset',
-          props: {
-            src: shot.dataUrl,
-            w: 800,
-            h: 450,
-            name: shot.filename,
-            isAnimated: false,
-            mimeType,
-          },
-          meta: { screenshotId: shot.id },
-        } as any,
-      ]);
-
-      const shapeId = createShapeId();
-      editor.createShapes([
-        {
-          id: shapeId,
-          type: 'image',
-          x: toDomPrecision(startX),
-          y: toDomPrecision(y),
-          props: {
-            w: 800,
-            h: 450,
-            assetId,
-            playing: false,
-            flipX: false,
-            flipY: false,
-          },
-        } as any,
-      ]);
+      await addImageToEditor(editor, shot, startX, y);
       // mark this dataUrl as seen at least once on canvas
       seenDataUrlsRef.current.add(shot.dataUrl);
       y += 490;
@@ -164,7 +167,7 @@ const CanvasBoard = ({
     window.setTimeout(() => void mountImages(editor), 100);
     window.setTimeout(() => void mountImages(editor), 500);
     if (scanTimerRef.current) window.clearInterval(scanTimerRef.current);
-    // poll canvas and persist deletions of screenshots (by missing image assets)
+    // poll canvas and handle deletions with debounce + self-heal
     scanTimerRef.current = window.setInterval(() => {
       try {
         const e = editorRef.current as any;
@@ -182,7 +185,17 @@ const CanvasBoard = ({
         }
         // Update seen set with whatever is currently on canvas
         for (const url of presentDataUrls) seenDataUrlsRef.current.add(url);
-        onPersistDeletions(presentDataUrls, seenDataUrlsRef.current);
+
+        // Determine expected urls from props and persist immediate deletions
+        const expected = new Set<string>();
+        for (const s of screenshots) if (s.dataUrl) expected.add(s.dataUrl);
+        const confirmedDeleted = new Set<string>();
+        expected.forEach(u => {
+          if (!presentDataUrls.has(u) && seenDataUrlsRef.current.has(u)) {
+            confirmedDeleted.add(u);
+          }
+        });
+        if (confirmedDeleted.size > 0) onConfirmDeletions?.(confirmedDeleted);
       } catch {}
     }, 2000) as unknown as number;
   };
@@ -252,6 +265,16 @@ const ProjectsApp = () => {
     return activeCanvasId ? shots.filter(s => s.canvasId === activeCanvasId) : shots;
   }, [project, activeCanvasId]);
 
+  const normalizeBaseDir = (raw: string | undefined): string => {
+    let dir = (raw || '').trim();
+    if (/^(~|\/|\\|[A-Za-z]:)/.test(dir)) {
+      const parts = dir.split(/[\\/]+/g).filter(Boolean);
+      dir = parts.length ? parts[parts.length - 1] : 'projects';
+    }
+    dir = dir.replace(/^[\\/]+|[\\/]+$/g, '');
+    return dir || 'projects';
+  };
+
   // If we just came from a screenshot action, hydrate the dataUrl for immediate mounting
   useEffect(() => {
     const hydrateLastScreenshot = async () => {
@@ -284,16 +307,27 @@ const ProjectsApp = () => {
   useEffect(() => {
     const hydrateFromDownloads = async () => {
       try {
-        const baseDir = (process.env?.CEB_SCREENSHOT_DIR as string) || 'projects';
+        const baseDirRaw = (process.env?.CEB_SCREENSHOT_DIR as string) || 'projects';
+        const baseDir = normalizeBaseDir(baseDirRaw);
         if (!('downloads' in chrome) || !chrome.downloads?.search) return;
-        const safe = baseDir.replace(/[-/\\^$*+?.()|[\]{}]/g, r => `\\${r}`);
-        const regex = `${safe}[\\/].+`;
-        const items = await chrome.downloads.search({ filenameRegex: regex });
+        const safeSeg = baseDir.replace(/[-/\\^$*+?.()|[\]{}]/g, r => `\\${r}`);
+        const regex = `(?:^|[\\/])${safeSeg}(?:[\\/].+)?$`;
+        let items: any[] = [];
+        try {
+          items = await chrome.downloads.search({ filenameRegex: regex });
+        } catch {
+          // Fallback: broad query by segment
+          try {
+            // @ts-ignore - query is allowed in Downloads API
+            items = await chrome.downloads.search({ query: [baseDir] });
+          } catch {}
+        }
         const projectToFiles = new Map<string, { filename: string; exists: boolean }[]>();
         for (const it of items) {
           const full = it.filename || '';
           const parts = full.split(/[/\\]/g);
-          const idx = parts.findIndex(p => p === baseDir);
+          const partsLower = parts.map(p => p.toLowerCase());
+          const idx = partsLower.findIndex(p => p === baseDir.toLowerCase());
           if (idx >= 0 && parts[idx + 1]) {
             const pid = parts[idx + 1];
             const rel = `${baseDir}/${parts.slice(idx + 1).join('/')}`;
@@ -304,15 +338,7 @@ const ProjectsApp = () => {
         }
 
         const current = await projectsStorage.get();
-        // prune projects with no files
-        for (const pid of Object.keys(current.projects)) {
-          const files = projectToFiles.get(pid) || [];
-          if (files.filter(f => f.exists).length === 0) {
-            delete current.projects[pid];
-            if (current.currentProjectId === pid) current.currentProjectId = undefined;
-          }
-        }
-        // ensure projects exist for found files and add missing screenshots
+        // ensure projects exist for found files and add missing screenshots (no aggressive pruning)
         for (const [pid, files] of projectToFiles.entries()) {
           if (!current.projects[pid]) {
             current.projects[pid] = {
@@ -384,16 +410,25 @@ const ProjectsApp = () => {
   const scanAndHydrateProjects = async () => {
     setIsScanning(true);
     try {
-      const baseDir = (process.env?.CEB_SCREENSHOT_DIR as string) || 'projects';
+      const baseDir = normalizeBaseDir(process.env?.CEB_SCREENSHOT_DIR as string);
       if (!('downloads' in chrome) || !chrome.downloads?.search) return;
       const safe = baseDir.replace(/[-\/\\^$*+?.()|[\]{}]/g, r => `\\${r}`);
-      const regex = `${safe}[\\/].+`;
-      const items = await chrome.downloads.search({ filenameRegex: regex });
+      const regex = `(?:^|[\\/])${safe}(?:[\\/].+)?$`;
+      let items: any[] = [];
+      try {
+        items = await chrome.downloads.search({ filenameRegex: regex });
+      } catch {
+        try {
+          // @ts-ignore
+          items = await chrome.downloads.search({ query: [baseDir] });
+        } catch {}
+      }
       const projectToFiles = new Map<string, { filename: string; exists: boolean }[]>();
       for (const it of items) {
         const full = it.filename || '';
         const parts = full.split(/[\/\\]/g);
-        const idx = parts.findIndex(p => p === baseDir);
+        const partsLower = parts.map(p => p.toLowerCase());
+        const idx = partsLower.findIndex(p => p === baseDir.toLowerCase());
         if (idx >= 0 && parts[idx + 1]) {
           const pid = parts[idx + 1];
           const rel = `${baseDir}/${parts.slice(idx + 1).join('/')}`;
@@ -431,7 +466,13 @@ const ProjectsApp = () => {
       }
       await projectsStorage.set(current);
 
-      const pids = Array.from(projectToFiles.keys()).sort();
+      // Populate dropdown from both discovered and existing storage
+      const pids = Array.from(
+        new Set<string>([
+          ...Object.keys(current.projects || {}),
+          ...Array.from(projectToFiles.keys()),
+        ]),
+      ).sort();
       setAvailableProjects(pids);
       if (!selectedProject && pids.length > 0) setSelectedProject(pids[0]);
     } finally {
@@ -547,28 +588,14 @@ const ProjectsApp = () => {
           onEditor={e => {
             editorRef.current = e;
           }}
-          onPersistDeletions={async (presentDataUrls, seenDataUrls) => {
+          onConfirmDeletions={async deletedDataUrls => {
             if (!project) return;
             const state = await projectsStorage.get();
             const p = state.projects[project.id];
             if (!p) return;
             const before = p.screenshots.length;
-            p.screenshots = p.screenshots.filter(s => {
-              // Keep screenshots that belong to other canvases
-              if (!s.canvasId || s.canvasId !== activeCanvasId) return true;
-              // If we have dataUrl, only keep if it is still present on canvas
-              if (s.dataUrl) {
-                // Only consider deletion if this screenshot's dataUrl has been seen at least once on canvas
-                if (!seenDataUrls.has(s.dataUrl)) return true;
-                return presentDataUrls.has(s.dataUrl);
-              }
-              // If we never mounted this screenshot (no dataUrl in state), we cannot infer deletion from canvas
-              // Keep it in state so future captures can hydrate it with dataUrl
-              return true;
-            });
-            if (p.screenshots.length !== before) {
-              await projectsStorage.set(state);
-            }
+            p.screenshots = p.screenshots.filter(s => !s.dataUrl || !deletedDataUrls.has(s.dataUrl));
+            if (p.screenshots.length !== before) await projectsStorage.set(state);
           }}
         />
         <RightPanel editor={editorRef.current} activeCanvasName={canvases.find(c => c.id === activeCanvasId)?.name} />
