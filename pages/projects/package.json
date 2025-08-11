@@ -23,9 +23,14 @@
     "@extension/shared": "workspace:*",
     "@extension/storage": "workspace:*",
     "@extension/ui": "workspace:*",
+    "@extension/env": "workspace:*",
     "@extension/i18n": "workspace:*",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "tldraw": "^3.5.0",
+    "@ai-sdk/react": "^0.0.48",
+    "ai": "^3.4.33",
+    "react-spinners": "^0.14.1"
   },
   "devDependencies": {
     "@extension/tailwindcss-config": "workspace:*",
@@ -39,5 +44,3 @@
     }
   }
 }
-
-

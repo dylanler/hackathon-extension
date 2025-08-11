@@ -10,6 +10,7 @@ export interface ScreenshotItem {
   createdAt: string; // ISO string
   pageTitle?: string;
   pageUrl?: string;
+  canvasId?: string;
 }
 
 export interface ProjectRecord {
@@ -17,6 +18,7 @@ export interface ProjectRecord {
   title?: string;
   createdAt: string;
   screenshots: ScreenshotItem[];
+  canvases?: { id: string; name: string }[];
 }
 
 export interface ProjectsState {
@@ -33,5 +35,3 @@ export const projectsStorage = createStorage<ProjectsState>('projects-state', in
   storageEnum: StorageEnum.Local,
   liveUpdate: true,
 });
-
-

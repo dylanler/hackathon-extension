@@ -38,10 +38,55 @@ const Popup = () => {
       });
   };
 
-  const takeScreenshot = async () => {
+  const takeScreenshot = async (canvasId?: string) => {
     const [tab] = await chrome.tabs.query({ currentWindow: true, active: true });
     if (!tab?.id) return;
-    const res = await chrome.runtime.sendMessage({ type: 'TAKE_PAGE_SCREENSHOT' });
+    // Prompt to pick a project or create a new one
+    const state = await projectsStorage.get();
+    const existingProjects = Object.values(state.projects || {});
+    let chosenProjectId: string | undefined = state.currentProjectId;
+
+    if (existingProjects.length > 0) {
+      // use a simple prompt for now; later we can replace with a nicer UI dialog
+      const options = existingProjects.map(p => p.id).join('\n');
+      const answer = window.prompt(
+        `Choose a project id or type NEW to create one:\n${options}`,
+        chosenProjectId || (existingProjects[0]?.id ?? ''),
+      );
+      if (answer && answer.toUpperCase() === 'NEW') {
+        const resNew = await chrome.runtime.sendMessage({ type: 'NEW_PROJECT' });
+        if (!resNew?.ok) {
+          chrome.notifications.create('new-project-error', {
+            type: 'basic',
+            iconUrl: chrome.runtime.getURL('icon-34.png'),
+            title: 'New Project failed',
+            message: resNew?.error || 'Unknown error',
+          });
+          return;
+        }
+        chosenProjectId = resNew.projectId;
+      } else if (answer) {
+        chosenProjectId = answer;
+      }
+    } else {
+      const resNew = await chrome.runtime.sendMessage({ type: 'NEW_PROJECT' });
+      if (!resNew?.ok) {
+        chrome.notifications.create('new-project-error', {
+          type: 'basic',
+          iconUrl: chrome.runtime.getURL('icon-34.png'),
+          title: 'New Project failed',
+          message: resNew?.error || 'Unknown error',
+        });
+        return;
+      }
+      chosenProjectId = resNew.projectId;
+    }
+
+    const res = await chrome.runtime.sendMessage({
+      type: 'TAKE_PAGE_SCREENSHOT',
+      canvasId,
+      projectId: chosenProjectId,
+    });
     if (!res?.ok) {
       chrome.notifications.create('screenshot-error', {
         type: 'basic',
@@ -56,6 +101,11 @@ const Popup = () => {
         title: 'Screenshot saved',
         message: `Saved to Downloads/${res.filename}`,
       });
+      // open projects page focusing the project and canvas
+      const url = chrome.runtime.getURL(
+        `projects/index.html?projectId=${encodeURIComponent(res.projectId)}&canvasId=${encodeURIComponent(res.canvasId)}`,
+      );
+      await chrome.tabs.create({ url });
     }
   };
 
@@ -106,9 +156,35 @@ const Popup = () => {
             'mt-2 rounded px-4 py-1 font-bold shadow hover:scale-105',
             isLight ? 'bg-green-200 text-black' : 'bg-green-700 text-white',
           )}
-          onClick={takeScreenshot}>
+          onClick={() => void takeScreenshot()}>
           Take Screenshots
         </button>
+        <div className="mt-2 flex gap-2">
+          <button
+            className={cn(
+              'rounded px-3 py-1 font-bold shadow hover:scale-105',
+              isLight ? 'bg-green-200 text-black' : 'bg-green-700 text-white',
+            )}
+            onClick={() => takeScreenshot('canvas-1')}>
+            Shot → Canvas 1
+          </button>
+          <button
+            className={cn(
+              'rounded px-3 py-1 font-bold shadow hover:scale-105',
+              isLight ? 'bg-green-200 text-black' : 'bg-green-700 text-white',
+            )}
+            onClick={() => takeScreenshot('canvas-2')}>
+            Shot → Canvas 2
+          </button>
+          <button
+            className={cn(
+              'rounded px-3 py-1 font-bold shadow hover:scale-105',
+              isLight ? 'bg-green-200 text-black' : 'bg-green-700 text-white',
+            )}
+            onClick={() => takeScreenshot('canvas-3')}>
+            Shot → Canvas 3
+          </button>
+        </div>
         <div className="mt-4 flex gap-2">
           <button
             className={cn(
