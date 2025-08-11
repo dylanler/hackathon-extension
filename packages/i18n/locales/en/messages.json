@@ -1,11 +1,11 @@
 {
   "extensionDescription": {
     "description": "Extension description",
-    "message": "Chrome extension boilerplate developed with Vite, React and Typescript"
+    "message": "Capture and organize websites into visual canvas. Use AI to instantly query, analyze, and create new content from your compiled research."
   },
   "extensionName": {
     "description": "Extension name",
-    "message": "Chrome extension boilerplate"
+    "message": "Visual Canvas AI"
   },
   "toggleTheme": {
     "message": "Toggle theme"
